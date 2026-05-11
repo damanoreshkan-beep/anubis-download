@@ -29,7 +29,7 @@ Attributes:
 * Groups the assets into primary buckets (Windows · Linux AppImage · Arch Linux pacman) plus a "Other formats" overflow (tar.gz, future macOS, etc.).
 * Hides auto-updater metadata files automatically (`latest*.yml`, `*.blockmap`, `builder-debug.yml`).
 * Detects the visitor's OS / distro from `navigator.userAgent` and highlights the matching card with a violet halo + a "Detected: …" hint underneath. Auto-detect is a suggestion, never a filter — every platform stays clickable.
-* Caches the API response in `localStorage` for 1 hour. First paint after a revisit happens before the network call returns; the call still runs to refresh the cache silently.
+* **Stale-while-revalidate caching.** The previous release is painted from `localStorage` on first frame, *and* a fresh fetch always runs in the background to pick up new tags. Tab regains focus → another fetch, so visitors who keep the site open get new releases without reloading.
 * Falls back to a "GitHub Releases" link if the fetch fails entirely.
 
 ## Asset detection

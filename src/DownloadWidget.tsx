@@ -33,8 +33,6 @@ interface Cache {
     release: GhRelease
 }
 
-const CACHE_TTL_MS = 60 * 60 * 1000
-
 function cacheKey(repo: string): string {
     return `aw-download-cache:${repo}`
 }
@@ -207,18 +205,22 @@ export function DownloadWidget({ repo, lang, githubToken }: Props) {
             setLoading(false)
             return
         }
-        // First pass: hit the cache so the UI paints instantly. Then
-        // fetch fresh in the background; if the tag changed, update.
+        // Stale-while-revalidate: paint the cached release immediately
+        // (no flash of loading on revisit) AND always kick off a fresh
+        // fetch in the background so a new tag shows up on the next
+        // turn of the event loop. We used to early-return when the
+        // cache was younger than the TTL, which meant a v1.4.16 push
+        // wouldn't surface for visitors with a fresh-ish cache for up
+        // to an hour. The cache is now purely a first-paint speed
+        // optimisation; freshness is the network's job.
         const cached = readCache(repoSafe)
         if (cached) {
             setRelease(cached.release)
             setLoading(false)
-            // Don't refetch if we just hit it within the TTL — saves
-            // the API call entirely on repeat visits.
-            if (Date.now() - cached.fetchedAt < CACHE_TTL_MS) return
         }
+
         let cancelled = false
-        fetchRelease(repoSafe, githubToken)
+        const refetch = () => fetchRelease(repoSafe, githubToken)
             .then(r => {
                 if (cancelled) return
                 writeCache(repoSafe, r)
@@ -230,7 +232,17 @@ export function DownloadWidget({ repo, lang, githubToken }: Props) {
                 if (!cached) setError(String(e?.message ?? e))
             })
             .finally(() => { if (!cancelled) setLoading(false) })
-        return () => { cancelled = true }
+        refetch()
+
+        // Refresh when the tab regains focus — visitors who keep the
+        // site open in a background tab still get the latest release
+        // the next time they switch back, no hard reload needed.
+        const onVisible = () => { if (document.visibilityState === 'visible') refetch() }
+        document.addEventListener('visibilitychange', onVisible)
+        return () => {
+            cancelled = true
+            document.removeEventListener('visibilitychange', onVisible)
+        }
     }, [repoSafe, githubToken])
 
     if (!repoSafe) {
