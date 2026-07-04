@@ -2,7 +2,8 @@
 // download cards grouped by platform. Caches in localStorage for 1h to
 // stay friendly with the anon REST rate limit (60 req/h/IP) and to
 // render instantly on revisit.
-import { useEffect, useState } from 'preact/hooks'
+import { useState } from 'preact/hooks'
+import { useCachedResource } from '@anubis/core'
 import { copyFor, type T } from './locales'
 
 interface Props {
@@ -28,29 +29,8 @@ interface GhRelease {
     assets: GhAsset[]
 }
 
-interface Cache {
-    fetchedAt: number
-    release: GhRelease
-}
-
 function cacheKey(repo: string): string {
     return `aw-download-cache:${repo}`
-}
-
-function readCache(repo: string): Cache | null {
-    try {
-        const raw = localStorage.getItem(cacheKey(repo))
-        if (!raw) return null
-        const c = JSON.parse(raw) as Cache
-        if (typeof c?.fetchedAt !== 'number' || !c.release) return null
-        return c
-    } catch { return null }
-}
-
-function writeCache(repo: string, release: GhRelease) {
-    try {
-        localStorage.setItem(cacheKey(repo), JSON.stringify({ fetchedAt: Date.now(), release }))
-    } catch { /* quota or private mode — ignore */ }
 }
 
 async function fetchRelease(repo: string, token?: string): Promise<GhRelease> {
@@ -195,55 +175,17 @@ export function DownloadWidget({ repo, lang, githubToken }: Props) {
     const langCode = (lang || 'en').slice(0, 2).toLowerCase()
     const repoSafe = (repo || '').trim()
 
-    const [release, setRelease] = useState<GhRelease | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-
-    useEffect(() => {
-        if (!repoSafe) {
-            setError('missing repo attribute')
-            setLoading(false)
-            return
-        }
-        // Stale-while-revalidate: paint the cached release immediately
-        // (no flash of loading on revisit) AND always kick off a fresh
-        // fetch in the background so a new tag shows up on the next
-        // turn of the event loop. We used to early-return when the
-        // cache was younger than the TTL, which meant a v1.4.16 push
-        // wouldn't surface for visitors with a fresh-ish cache for up
-        // to an hour. The cache is now purely a first-paint speed
-        // optimisation; freshness is the network's job.
-        const cached = readCache(repoSafe)
-        if (cached) {
-            setRelease(cached.release)
-            setLoading(false)
-        }
-
-        let cancelled = false
-        const refetch = () => fetchRelease(repoSafe, githubToken)
-            .then(r => {
-                if (cancelled) return
-                writeCache(repoSafe, r)
-                setRelease(r)
-                setError(null)
-            })
-            .catch(e => {
-                if (cancelled) return
-                if (!cached) setError(String(e?.message ?? e))
-            })
-            .finally(() => { if (!cancelled) setLoading(false) })
-        refetch()
-
-        // Refresh when the tab regains focus — visitors who keep the
-        // site open in a background tab still get the latest release
-        // the next time they switch back, no hard reload needed.
-        const onVisible = () => { if (document.visibilityState === 'visible') refetch() }
-        document.addEventListener('visibilitychange', onVisible)
-        return () => {
-            cancelled = true
-            document.removeEventListener('visibilitychange', onVisible)
-        }
-    }, [repoSafe, githubToken])
+    // Stale-while-revalidate: paint the cached release instantly on
+    // revisit and always refetch in the background so a new tag surfaces
+    // on the next turn of the event loop. The cache is purely a
+    // first-paint optimisation; freshness is the network's job. Old
+    // {fetchedAt,release} entries fail the parse guard and are ignored.
+    const { data: release, loading, error } = useCachedResource<GhRelease>(
+        repoSafe ? cacheKey(repoSafe) : null,
+        () => fetchRelease(repoSafe, githubToken),
+        [repoSafe, githubToken],
+        raw => (raw && typeof raw === 'object' && 'tag_name' in raw ? (raw as GhRelease) : null),
+    )
 
     if (!repoSafe) {
         return <div class="aw-download-scope p-6 text-sm text-rose-400">missing repo="owner/name" attribute</div>
