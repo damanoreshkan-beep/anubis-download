@@ -1,6 +1,6 @@
 // Per-locale COPY map for the download widget. Adding a key requires
 // updating every locale at once — missing keys fall through to `en`.
-import { pickLocale } from '@anubis/widget-core'
+import { pickLocale } from '@anubis/core'
 
 export type Locale = 'en' | 'ru' | 'uk' | 'de' | 'pl'
 
