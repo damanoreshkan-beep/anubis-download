@@ -1,5 +1,7 @@
 // Per-locale COPY map for the download widget. Adding a key requires
 // updating every locale at once — missing keys fall through to `en`.
+import { pickLocale } from '@anubis/widget-core'
+
 export type Locale = 'en' | 'ru' | 'uk' | 'de' | 'pl'
 
 export const COPY = {
@@ -128,6 +130,5 @@ export const COPY = {
 export type T = typeof COPY['en']
 
 export function copyFor(lang: string | undefined | null): T {
-    const k = (lang || '').slice(0, 2).toLowerCase() as Locale
-    return (COPY[k] ?? COPY.en) as unknown as T
+    return pickLocale(COPY, lang) as unknown as T
 }
